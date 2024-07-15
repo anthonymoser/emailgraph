@@ -1,0 +1,43 @@
+{
+    "node_factories": {
+        "from": {
+            "id_field": "from",
+            "label_field": "from",
+            "type": {
+                "type": "field",
+                "value": "sender_domain"
+            },
+            "attr": [
+                "filename"
+            ],
+            "tidy": null
+        },
+        "to": {
+            "id_field": "to",
+            "label_field": "to",
+            "type": {
+                "type": "field",
+                "value": "recipient_domain"
+            },
+            "attr": [
+                "filename"
+            ],
+            "tidy": null
+        }
+    },
+    "link_factories": [
+        {
+            "source_field": "from",
+            "target_field": "to",
+            "type": {
+                "type": "field",
+                "value": "type"
+            },
+            "attr": [
+                "emails", 
+                "sender_domain", 
+                "recipient_domain"
+            ]
+        }
+    ]
+}
