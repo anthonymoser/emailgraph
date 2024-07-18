@@ -145,102 +145,57 @@ class GraphFactory(msgspec.Struct):
 class SigmaFactory(msgspec.Struct):
     height : int = 1000
     layout_settings : dict | None = None
+    
     edge_color : str = "type"
     edge_size : str | None = None
     edge_size_range: tuple = (1, 15)
     edge_weight : str | None = None
     edge_color_palette : str | None = "Category10"
-    node_color_palette: str | dict = "Dark2"
     edge_color_gradient: tuple | None = None 
     default_edge_color : str = "gray"
-    node_size : str | None = None
+    
+    node_size : str | dict | None = None
     node_size_range : tuple[int, int] = (3, 30)
     node_color : str = "type"
+    node_color_palette: str | dict = "Dark2"
+    node_metrics : dict | None = None
+    raw_node_color: str | None = None
+    
     clickable_edges : bool = False
     selected_node : str|None = None
     layout : dict|None = None
+    layout_settings : dict|None
     camera_state : dict = {}
     
     def to_dict(self):
         return {f: getattr(self, f) for f in self.__struct_fields__}
         
-    def make_sigma(self, G:nx.MultiGraph, node_colors:dict|None = None, edge_colors:dict|None = None, layout = None, camera_state = {}):
+    def make_sigma(self, G:nx.MultiGraph, **kwargs):
         
-        if node_colors is None or len(node_colors) == 0:
-            node_colors = self.node_color_palette
+        settings = { f: kwargs.get(f, getattr(self, f)) for f in self.__struct_fields__}
+        settings['raw_node_border_color'] = "white"
+        settings['raw_node_border_size'] = "1px"
+        settings['raw_node_border_ratio'] = ".01"
+        settings['start_layout'] = len(G) / 20
+        settings = {key: settings[key] for key in settings if settings[key] is not None}
         
-        if edge_colors is None or len(edge_colors) == 0:
-            edge_colors = self.edge_color_palette
-        
-        if self.edge_color_gradient:
-            return Sigma(
-            G, 
-            height = self.height,
-            layout_settings = self.layout_settings if self.layout_settings else {"StrongGravityMode": False},    
-            edge_color =            self.edge_color,
-            edge_color_gradient =   self.edge_color_gradient,
-            edge_size =             self.edge_size if self.edge_size else lambda x: 1,
-            edge_size_range=        self.edge_size_range,
-            default_edge_color =    self.default_edge_color,
-            clickable_edges =       self.clickable_edges,
-            camera_state =          self.camera_state if len(camera_state) == 0 else camera_state,
-            node_size =             self.node_size if self.node_size else G.degree,
-            node_size_range =       self.node_size_range, 
-            node_color =            self.node_color,
-            node_color_palette=     node_colors,
-            raw_node_border_color=  "white",
-            raw_node_border_size =  "1px",
-            raw_node_border_ratio = ".01",
-            selected_node=          self.selected_node,
-            layout =                self.layout if layout is None else layout,
-            start_layout =          (len(G) / 10 ) if layout is None else len(G) / 20
-        )
-            
         return Sigma(
             G, 
-            height = self.height,
-            layout_settings = self.layout_settings if self.layout_settings else {"StrongGravityMode": False},    
-            edge_color =            self.edge_color,
-            edge_color_palette =    edge_colors,
-            edge_size =             self.edge_size if self.edge_size else lambda x: 1,
-            edge_size_range=        (1, 15),
-            default_edge_color =    self.default_edge_color,
-            clickable_edges =       self.clickable_edges,
-            camera_state =          self.camera_state if len(camera_state) == 0 else camera_state,
-            node_size =             self.node_size if self.node_size else G.degree,
-            node_size_range =       self.node_size_range, 
-            node_color =            self.node_color,
-            node_color_palette=     node_colors,
-            raw_node_border_color=  "white",
-            raw_node_border_size =  "1px",
-            raw_node_border_ratio = ".01",
-            selected_node=          self.selected_node,
-            layout =                self.layout if layout is None else layout,
-            start_layout =          (len(G) / 10 ) if layout is None else len(G) / 20
+            **settings
         )
+        
     
-    def export_graph(self, G:nx.MultiGraph, layout = None, camera_state = {}):
+    def export_graph(self, G:nx.MultiGraph, **kwargs):
         with io.BytesIO() as bytes_buf:
             with io.TextIOWrapper(bytes_buf) as text_buf:
-                Sigma.write_html(
-                    G,
-                    path=text_buf,  
-                    height = self.height,
-                    
-                    edge_color = self.edge_color,
-                    edge_size = self.edge_size if self.edge_size else lambda x: 1,
-                    default_edge_color = self.default_edge_color,
-                    clickable_edges = self.clickable_edges,
-                    
-                    node_size = self.node_size if self.node_size else G.degree,
-                    node_size_range = self.node_size_range, 
-                    node_color = self.node_color,
-                    
-                    camera_state = self.camera_state if len(camera_state) == 0 else camera_state,
-                    layout= self.layout if layout is None else layout,
-                    layout_settings = self.layout_settings if self.layout_settings else {"StrongGravityMode": False},    
-                    start_layout = len(G) / 10
-                )
+                settings = { f: kwargs.get(f, getattr(self, f)) for f in self.__struct_fields__}
+                settings['raw_node_border_color'] = "white"
+                settings['raw_node_border_size'] = "1px"
+                settings['raw_node_border_ratio'] = ".01"
+                settings['start_layout'] = len(G) / 20
+                settings['path'] = text_buf
+                
+                Sigma.write_html( G,**settings)
                 yield bytes_buf.getvalue()
                 
                 

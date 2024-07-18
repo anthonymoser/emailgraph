@@ -189,23 +189,26 @@ def community_colors(g):
         for community_counter, community_members in enumerate(communities):
             if node_id in community_members:
                 break
-        node['color'] = node_colors[community_counter % len(node_colors)]
-
+        node['community'] = node_colors[community_counter % len(node_colors)]
+        
     for edge_id in g.edges:
         edge =  g.edges[edge_id]
         source_node = g.nodes[edge_id[0]]
         target_node = g.nodes[edge_id[1]]
-        pastel = edge_colors[node_colors.index(source_node['color'])]
-        edge['color'] =  pastel if source_node['color'] == target_node['color'] else 'lightgray'
-    return g 
+        pastel = edge_colors[node_colors.index(source_node['community'])]
+        edge['community'] =  pastel if source_node['community'] == target_node['community'] else 'lightgray'
+    
+    # node_colors = dict(nx.get_node_attributes(g, "community", default='#acacac'))
+    # print(node_colors)
+    return g
 
 
-def get_node_colors(G):
+def get_node_colors(G, color_field:str = "type"):
     colors = ['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99','#b15928']
     
     node_types = dict(
         pd.Series(
-            nx.get_node_attributes(G, "type", default=None)
+            nx.get_node_attributes(G, color_field, default=None)
             .values()
         ).value_counts()
     ).keys()
@@ -263,17 +266,6 @@ def get_node_names(G)->dict:
         name = G.nodes[n].get("label", n)
         node_names[name] = n
     return node_names
-
-
-def get_network_graph(df, fields):
-    nodes = get_nodes(df)
-
-    G = nx.DiGraph(arrow_color = 'gray', arrow_size=10)
-    for n in nodes:
-        G.add_node(n[0], **n[1])
-    
-    add_edges(df, fields, G)
-    return G 
 
 
 def match_column(columns:list, search:str) -> str|None: 

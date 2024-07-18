@@ -4,6 +4,7 @@ from shinywidgets import output_widget, render_widget
 from shiny.types import FileInfo
 from htmltools import TagList, div
 
+from copy import copy 
 import msgspec
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -49,25 +50,22 @@ app_ui = ui.page_sidebar(
             ),
             ui.accordion_panel(
                 "FILTER",
-                ui.input_action_button("filter_log_to_graph_selection", "Filter log by graph selection"),
-                ui.input_action_button("filter_graph_to_log_selection", "Filter graph by log selection"),
-                
-                ui.input_checkbox("filter_by_date", 'Filter by date', False),
-                ui.output_ui("date_control"),
-                ui.input_checkbox("filter_by_degree", "Filter by degree (connections)", False),
-                ui.output_ui("degree_control"),
-                ui.output_plot("degree_plot", height="100px", width="auto"),
+                ui.input_action_button("filter_graph_to_log_selection", "Filter graph (match log)"),
+                ui.input_action_button("filter_log_to_graph_selection", "Filter log (match graph)"),
+                ui.input_date_range("date_filter", "Filter by date field"),
+                # ui.output_ui("degree_control"),
+                # ui.output_plot("degree_plot", height="100px", width="auto"),
             ),
             ui.accordion_panel(
                 "STYLE",
-                ui.input_select('node_size', "Node size", ["Total email count", "Inbound emails", "Outbound emails", "Degree centrality"]),
+                ui.input_select('node_size', "Node size", ["Total email count", "Inbound emails", "Outbound emails", "Degree centrality"], selected = "Total email count"),
                 ui.input_select('node_color', "Node color", ["Domain", "Detect communities", "Source file(s)"]),
-                ui.input_select('edge_color', "Edge color", ["Grayscale", "Email count", "Recipient Type", "Sender Domain"], selected = "Grayscale"),
-                ui.input_action_button("detect_communities", "Detect communities"),
+                ui.input_select('edge_color', "Edge color", ["Grayscale", "Email count", "Recipient type", "Sender domain", "Inferred community"], selected = "Grayscale"),
+                # ui.input_action_button("detect_communities", "Detect communities"),
             ),
             id = "controls_accordion"
         ),
-        ui.input_action_button("reset", "Reset Graph"),
+        ui.input_action_button("reset", "Reset"),
         open="always"
     ),
 
@@ -75,9 +73,10 @@ app_ui = ui.page_sidebar(
     ui.navset_underline(
         ui.nav_menu("Save / Load",
             ui.nav_control(
-                ui.download_button("download_log", "Download log"),
-                ui.download_button('export_graph', "Export graph HTML"),
-                ui.download_button("save_graph_data", "Save QNG Graph File"),
+                ui.download_button("download_log", "Download filtered log (CSV)"),
+                ui.download_button("save_graph_data", "Download graph (QNG)"),
+                ui.download_button('export_graph', "Export graph (HTML)"),
+                ui.input_file("graph_upload", "", accept=[".qng"], multiple=True, placeholder='.QNG', width="100%", button_label = 'Upload graph (QNG)' ),
             ),
             ui.nav_control(
                 ui.a(
@@ -92,9 +91,10 @@ app_ui = ui.page_sidebar(
     ui.accordion(
         ui.accordion_panel(
             "LOG VIEW",
-            ui.output_data_frame(id="contents"),
+            ui.output_data_frame(id="contents")
         ),
         multiple=True,
+        open = None,
         id = "output_accordion", 
     ),
     fill.as_fillable_container(
@@ -115,10 +115,32 @@ app_ui = ui.page_sidebar(
             border-radius: 0;
         },
         
-        .accordion .action-button {
-            --bs-btn-margin-y: 0px;
+        .accordion .btn-default .action-button {
+            --bs-btn-margin-y: -1px;
+            --bs-btn-border-color: #acacac;
+            margin: 0px 0px -1px 0px;
+        }
+        
+        .nav-item .btn {
+            --bs-btn-border-width: 0;
+            --bs-btn-padding-x: 1em;
+            --bs-btn-hover-bg: var(--bs-tertiary-bg);
+            --bs-btn-hover-color: #000000;
+            --bs-btn-padding-y: 0;
+            --bs-btn-font-weight: 0;
         } 
         
+        .nav .input-group .form-control {
+            display: none;
+        }
+        
+        .bslib-sidebar-layout > .sidebar .shiny-input-container {
+            width: 100%;
+            margin-top: .75rem;
+        }
+        .accordion-button:not(.collapsed) {
+            background-color: #f2f2f2;
+        }
     """),
     {"style": "display:flex; flex-direction: column;"},
     title = "Email Log Network Graphs",
@@ -144,7 +166,7 @@ def server(input, output, session):
     
     filename = reactive.Value()
     field_map = reactive.Value({})
-    G = reactive.Value(nx.MultiDiGraph(arrow_color = 'gray', arrow_size=10))
+    G = reactive.Value(nx.MultiDiGraph(arrow_color = 'gray', arrow_size=5))
     filtered_data = reactive.Value(pd.DataFrame())
     node_colors = reactive.Value()
     
@@ -157,7 +179,7 @@ def server(input, output, session):
             edge_color_gradient=("#d3d3d3", "#969696")
         )
     )
-    viz = reactive.value()
+    viz = reactive.Value()
     
     # maybe deprecated?
     update_styles_div = div("update-styles-div")
@@ -247,8 +269,8 @@ def server(input, output, session):
         edge_color_fields = {
             "Grayscale": "emails",
             "Email count": "emails", 
-            "Recipient Type": "type",
-            "Sender Domain": "sender_domain"
+            "Recipient type": "type",
+            "Sender domain": "sender_domain"
         }
         edge_filter = viz().get_selected_edge_category_values()
         if edge_filter is not None:
@@ -267,14 +289,6 @@ def server(input, output, session):
         selected_ids = list(set(selected_ids))
         return selected_ids 
             
-    @output
-    @render.ui 
-    def date_control():
-        if input.date_field() and input.filter_by_date():
-            min_date = log()[input.date_field()].min()
-            max_date = log()[input.date_field()].max()
-            return ui.input_slider("date_slider", "", min=min_date, max=max_date, drag_range=True, value=(min_date,max_date))
-    
     @output 
     @render.ui 
     def degree_control():
@@ -308,6 +322,22 @@ def server(input, output, session):
     
     # On file upload
     @reactive.Effect
+    @reactive.event(input.graph_upload)
+    def _():
+        f: list[FileInfo] = input.graph_upload()
+        datapath = f[0]['datapath']
+        
+        if f[0]['type'] == "application/octet-stream":
+            with open(datapath, 'r') as f:
+                graph_data = msgspec.json.decode(f.read(), type=QNG)
+                mg = graph_data.multigraph()
+                
+                if len(G()) > 0:
+                    G.set(nx.compose(G(), mg))
+                else:
+                    G.set(mg)
+    
+    @reactive.Effect
     @reactive.event(input.file1)
     def _():
         f: list[FileInfo] = input.file1()
@@ -335,7 +365,7 @@ def server(input, output, session):
     def contents():
         if input.file1() is None:
             return pd.DataFrame()
-        else: 
+        elif len(log()) > 0: 
             ui.update_accordion_panel(id="primary_accordion", target="LOG VIEW", show=True)
             return render.DataGrid(log(), filters=True)
     
@@ -350,9 +380,29 @@ def server(input, output, session):
         }
         print(fields)
         if fields['id'] == "":
-            log()['uuid'] = log().index.map(lambda _: uuid4())
+            log()['uuid'] = log().index.map(lambda _: str(uuid4()))
             fields['id'] = 'uuid'
         field_map.set(fields)
+        
+        if fields['date'] != "":
+            df = log().copy()
+            df[fields['date']] = pd.to_datetime(df[fields['date']])
+            df['date_field'] = pd.to_datetime(df[fields['date']]).dt.strftime("%Y-%m-%d")
+            min_date = df[fields['date']].min()
+            max_date = df[fields['date']].max()
+            print(min_date, max_date)
+            
+            ui.update_date_range(
+                "date_filter", 
+                start = min_date, 
+                end = max_date,
+                min = min_date,
+                max = max_date
+            )
+            
+            log.set(df)
+        
+        # Begin async reprocessing of the log
         add_log(log(), filename(), fields, input.full_emails_only())
     
     
@@ -374,7 +424,24 @@ def server(input, output, session):
         print(f"Processed into {len(rfl)} rows")
         parsed_log.set(rfl)
         ui.update_accordion_panel(id="controls_accordion", target="UPLOAD", show=False)
+        ui.update_accordion_panel(id="controls_accordion", target="SELECT", show=True)
         ui.update_accordion_panel(id="controls_accordion", target="FILTER", show=True)
+        
+        
+    @reactive.effect
+    @reactive.event(input.date_filter)
+    def _():
+        if len(field_map()) > 0:
+            start = input.date_filter()[0]
+            end = input.date_filter()[1]
+            if start is not None and end is not None:
+                df = log().copy()
+                date_field = field_map()['date']
+                df = df[ 
+                    (df[date_field] >= pd.to_datetime(start)) &
+                    (df[date_field] <= pd.to_datetime(end))
+                ]
+                log.set(df) 
         
         
     @reactive.effect
@@ -389,206 +456,111 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(graph_df)
     def _():
-        print(len(graph_df()))
         graph = build_graph(G(), graph_factory, graph_df())
         G.set(graph)
 
 
-    @reactive.effect
-    @reactive.event(input.edge_color)
-    def _():
-        if input.edge_color() == "Grayscale":
-            SF.set(
-                SigmaFactory(
-                    clickable_edges=True, 
-                    edge_size='emails',
-                    edge_color = 'emails',  
-                    edge_color_gradient=("#d3d3d3", "#969696")
-                )
-            )
-        elif input.edge_color() == "Email count":
-            SF.set(
-                SigmaFactory(
-                    clickable_edges=True, 
-                    edge_size='emails',
-                    edge_color = 'emails'
-                )
-            )
-        elif input.edge_color() == "Recipient Type":
-            SF.set(
-                SigmaFactory(
-                    clickable_edges=True, 
-                    edge_size='emails',
-                    edge_color = 'type'
-                )
-            )
-        elif input.edge_color() == "Sender Domain": 
-            SF.set(
-                SigmaFactory(
-                    clickable_edges = True,
-                    edge_size = 'emails',
-                    edge_color = "sender_domain",
-                    edge_color_palette = node_colors()
-                )
-            )
-        
-    # Make graph widget
+    ### Make graph widget
     @reactive.effect
     @reactive.event(G, SF) 
     def graph_widget():
         try:
-            nc = get_node_colors(G())
-            node_colors.set(nc)
-            # edge_colors = get_edge_colors()
             layout = viz().get_layout()
             camera_state = viz().get_camera_state()
-            # viz.set(SF().make_sigwma(G(), node_colors, edge_colors, layout = layout, camera_state = camera_state))
             viz.set(
                 SF().make_sigma(
                     G(), 
-                    node_colors = nc,
                     layout = layout, 
-                    camera_state = camera_state,
+                    camera_state = camera_state
                 )
             )
         except Exception as e:
             print(e)
-            # viz.set(SF().make_sigma(G(), node_colors, edge_colors))
             viz.set(
                 SF().make_sigma(
-                    G(), 
+                    G(),
                 )
             )
+
+
+    @reactive.effect
+    @reactive.event(input.node_size, G)
+    def _():
+        node_size_map = {
+            "Total email count": dict(G().degree),
+            "Inbound emails": dict(G().in_degree),
+            "Outbound emails": dict(G().out_degree),
+            "Degree centrality": nx.degree_centrality(G())
+        }
+        new_sf = copy(SF())
+        new_sf.node_size = node_size_map.get(input.node_size())
+        SF.set(new_sf)
+    
+    
+    @reactive.effect
+    @reactive.event(input.node_color, G)
+    def _():
+        node_color_map = {
+            "Domain": "type", 
+            "Source file(s)": "filename",
+            "Detect communities": "community"
+        }
+        new_sf = copy(SF())
+        selected = node_color_map.get(input.node_color())
+        new_sf.node_color = selected
+        
+        nc = get_node_colors(G(), selected)
+        node_colors.set(nc)
+        new_sf.node_color_palette = nc        
+
+        match input.node_color():
+            case "Detect communities":    
+                new_graph = community_colors(G())
+                new_sf.node_color = None 
+                new_sf.raw_node_color = "community"
+                viz.set(new_sf.make_sigma(new_graph))
+                # new_sf.node_color_palette = None
+                # G.set(new_graph)
+                # ui.update_select("edge_color", selected = "Inferred community")
+            
+        SF.set(new_sf)
+        
+        
+    @reactive.effect
+    @reactive.event(input.edge_color, G)
+    def _():
+        edge_color_map = {
+            "Grayscale": "emails", 
+            "Email count": "emails",
+            "Recipient type": "type",
+            "Sender domain": "sender_domain", 
+            "Inferred community": "community"
+        }
+        new_sf = copy(SF())
+        new_sf.edge_color = edge_color_map.get(input.edge_color())
+        if input.edge_color() == "Grayscale":
+            new_sf.edge_color_gradient = ("#d3d3d3", "#969696")
+            new_sf.edge_color_palette = None
+        else:
+            new_sf.edge_color_gradient = None
+            # new_sf.edge_color_palette = node_colors()
+        SF.set(new_sf)
+
 
     # Update visualization
     @render_widget()
     def sigma_graph():
         return viz()
-    
-    @reactive.Effect
-    def _():
-        if len(G()) > 0:
-            ui.update_selectize("exclude", choices=list(G().nodes), selected = '')
 
     @reactive.Effect
     @reactive.event(input.reset)
     def _():
         ui.update_select("node_size", selected = "Total email count")
         ui.update_select("node_color", selected="Domain")
-        ui.update_selectize("exclude", choices=list(G().nodes), selected = '')
-        ui.update_checkbox("filter_by_date", value=False)
-        ui.update_slider("filter_by_degree", value=False)
+        ui.update_select("edge_color", selected = "Grayscale")
         log.set(backup_log())
-        
-        
-    @reactive.Effect
-    @reactive.event(input.detect_communities)
-    def _():  
-        print("detecting communities")  
-        new_graph = community_colors(G())
-        graph.set(new_graph)
-        ui.update_selectize("node_color", selected="Detect communities")
-        
-                    
-    # @output
-    # @render_widget
-    # def sigma_G():
 
-    #     filter_fn = filters.hide_nodes(input.exclude())
-    #     view = nx.subgraph_view(G(), filter_node=filter_fn)
-        
-    #     if input.filter_by_degree():
-    #         included_nodes = [node for node in G() if input.degree_controls()[0] <= nx.degree(G(), node) <= input.degree_controls()[1]]    
-    #         filter_fn = filters.show_nodes(included_nodes)
-    #         view = nx.subgraph_view(view, filter_node=filter_fn )
-        
-    #     large_layout = {
-    #         "adjustSizes": False,
-    #         "barnesHutOptimize": True,
-    #         "barnesHutTheta":1,
-    #         "StrongGravityMode": False,
-    #         "edgeWeightInfluence":.1
-    #     } 
-
-    #     small_layout = {
-    #         "adjustSizes": False,
-    #         "StrongGravityMode": True,
-    #         "edgeWeightInfluence":.3
-    #     } 
-        
-    #     node_size_map = {
-    #         "Total email count": G().degree,
-    #         "Inbound emails": G().in_degree,
-    #         "Outbound emails": G().out_degree,
-    #         "Degree centrality": nx.degree_centrality(G())
-    #     }
-        
-    #     node_color_map = {
-    #         "Domain": "domain", 
-    #         "Source file(s)": "files",
-    #         "Detect communities": "color"
-    #     }
-
-        
-    #     return Sigma(
-    #         view, 
-    #         height=1000,
-    #         layout_settings=small_layout if len(view) < 1000 else large_layout, 
-    #         edge_size='weight',
-    #         edge_size_range = (0.1, 5),
-    #         edge_weight='weight',
-    #         edge_zindex='weight',
-    #         edge_color = 'weight', 
-    #         edge_color_gradient=(("#dddddd", "black")),
-    #         max_categorical_colors = 20,
-    #         node_size = node_size_map.get(input.node_size(), G().degree),
-    #         node_size_range = (3, input.max_node_size()),
-    #         node_color= node_color_map.get(input.node_color(), "domain"),
-    #         start_layout=30 if len(G()) < 1000 else 120
-    #     )
-
-
-    # @reactive.Effect
-    # @reactive.event(input.date_field)
-    # def _():
-    #     if input.date_field() is not None:
-    #         df = log()
-    #         try:
-    #             df['date'] = pd.to_datetime(df[input.date_field()])
-    #             ui.update_select("date_field", choices = list(df.columns), selected = 'date')
-    #             log.set(df)
-    #         except Exception as e:
-    #             print(e)
-        
-    # @reactive.Effect
-    # @reactive.event(input.build_graph)
-    # def _():
-
-    #     df = log()
-    #     fields.set({
-    #         "from": input.from_field() if input.from_field() != "" else None,
-    #         "to": input.to_field() if input.to_field() != "" else None,
-    #         "cc": input.cc_field() if input.cc_field() != "" else None,
-    #         "email_id": input.email_id_field()
-    #     })
-        
-    #     if input.date_field() is not None and input.filter_by_date():
-    #         df = log().pipe(lambda df: df[df[input.date_field()].between(input.date_slider()[0], input.date_slider()[1])])
-        
-    #     print(fields())
-    #     new_graph = get_network_graph(df, fields())
-    #     nx.set_node_attributes(new_graph, [filename()], "files")
-        
-    #     if len(G()) > 0 and input.filter_by_date() is False:
-    #         old_graph = G()
-    #         node_data = {n: eval(old_graph.nodes[n]['files']) for n in old_graph.nodes}    
-    #         new_graph = merge_graphs(new_graph, old_graph)
-            
-    #     node_data = {n: str(new_graph.nodes[n]['files']) for n in new_graph.nodes}
-    #     nx.set_node_attributes(new_graph, node_data, 'files')
-    #     graph.set(new_graph)
-        
-    #     ui.update_selectize("exclude", choices=list(G().nodes), selected = '')
+     
     @render.download(filename=f"email_graph.qng")
     def save_graph_data():
         adj = nx.to_dict_of_dicts(G())
@@ -599,63 +571,13 @@ def server(input, output, session):
     @render.download(filename="log_export.csv" )
     def download_log():
         with io.BytesIO() as buf:
-            log().to_csv(buf, index=False)
+            ds = data_selected = contents.data_view(selected=True)
+            ds.to_csv(buf, index=False)
             yield buf.getvalue()
             
     @render.download(filename="graph_export.html")
     def export_graph():
-
-        # if input.detect_communities() is not False:
-        #     graph.set(community_colors(G()))
-    
-    
-        filter_fn = filters.hide_nodes(input.exclude())
-        view = nx.subgraph_view(G(), filter_node=filter_fn)
-        
-        if input.filter_by_degree():
-            included_nodes = [node for node in G() if input.degree_controls()[0] <= nx.degree(G(), node) <= input.degree_controls()[1]]    
-            filter_fn = filters.show_nodes(included_nodes)
-            view = nx.subgraph_view(view, filter_node=filter_fn )
-        
-        layout = {
-            "adjustSizes": False,
-            "barnesHutOptimize": True,
-            "barnesHutTheta":1,
-            "StrongGravityMode": False,
-            "edgeWeightInfluence":1
-        } 
-        
-        node_size_map = {
-            "Total email count": G().degree,
-            "Inbound emails": G().in_degree,
-            "Outbound emails": G().out_degree,
-            "Degree centrality": nx.degree_centrality(G())
-        }
-        
-        node_color_map = {
-            "Domain": "domain", 
-            "Source file(s)": "files"
-        }
-        with io.BytesIO() as bytes_buf:
-            with io.TextIOWrapper(bytes_buf) as text_buf:
-                Sigma.write_html(
-                    view,
-                    path=text_buf, 
-                    height=800,
-                    layout_settings={} if len(view) < 1000 else layout, 
-                    edge_size='weight',
-                    edge_size_range = (0.1, 5),
-                    edge_weight='weight',
-                    edge_zindex='weight',
-                    edge_color = 'weight', 
-                    edge_color_gradient=(("#dddddd", "black")),
-                    max_categorical_colors = 20,
-                    node_size = node_size_map.get(input.node_size(), G().degree),
-                    node_size_range = (3, input.max_node_size()),
-                    node_color= node_color_map.get(input.node_color(), "domain"),
-                    start_layout=30 if len(G()) < 1000 else 120
-                )
-                yield bytes_buf.getvalue()
+        return SF().export_graph(G())
     
 app = App(app_ui, server)
 
