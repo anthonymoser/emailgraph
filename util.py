@@ -119,7 +119,8 @@ def reformat_log(df: pd.DataFrame, fields:dict, filename:str, full_emails_only =
                             "recipient_domain": r.split('@').pop() if '@' in r else None
                         }
                     )
-    return pd.DataFrame(records)
+    rfl = pd.DataFrame(records).drop_duplicates()
+    return rfl
 
 def count_emails(df):
     return (
@@ -268,17 +269,46 @@ def get_node_names(G)->dict:
     return node_names
 
 
-def match_column(columns:list, search:str) -> str|None: 
+def match_column(columns:list, search:str, exclude:list = []) -> str|None: 
     for col in columns:
-        if col is not None and search in col:
+        if col is not None and search in col and col not in exclude:
             return col 
 
         
-def match_columns(columns:list, searches:list[str]) -> list|None:
+def match_columns(columns:list, searches:list[str], exclude:list = []) -> list|None:
     matches = []
     for col in columns:
         for s in searches:
-            if col is not None and s in col:
+            if col is not None and s in col and col not in exclude:
                 matches.append(col)
     return list(set(matches)) if len(matches) > 0 else None 
+
+def combine_likely_duplicates(G):
+    records = []
+    for node in G.nodes():
+        record = {
+            "node": node, 
+            "name": node.split('@').pop(0).replace(' ', '').replace('.', '')
+        }
+        records.append(record)
+    
+    likely_duplicates = (
+        pd.DataFrame(records)
+            .groupby('name')
+            .node.nunique()
+            .reset_index()
+            .pipe(lambda df: df[df.node > 1])
+            ['name']
+    )
+    
+    mergers = list(
+        pd.DataFrame(records)
+            .pipe(lambda df: df[df.name.isin(likely_duplicates)])
+            .groupby('name').agg({"node": list})
+            .reset_index()
+            .node
+    )
+    for m in mergers:
+        G = combine_nodes(G, m)
+    return G
     
