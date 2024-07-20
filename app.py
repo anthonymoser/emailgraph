@@ -50,6 +50,7 @@ app_ui = ui.page_sidebar(
                             col_widths = (6,6)                                    
                         ),
                     ), 
+                    ui.input_action_button("combine_matching_names", "Combine matching names"),
             ),
             ui.accordion_panel(
                 "FILTER",
@@ -141,12 +142,16 @@ app_ui = ui.page_sidebar(
         .accordion-button:not(.collapsed) {
             background-color: #f2f2f2;
         }
-        
+        @layer htmltools {
+            .html-fill-container {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+            }
+        }
         .bslib-page-sidebar > .navbar {
                 display: None;
         }
-
-        
     """),
     {"style": "display:flex; flex-direction: column;"},
     title = "Graph Emails",
@@ -233,7 +238,13 @@ def server(input, output, session):
         new_graph = combine_nodes(G(), selected)
         # merged.set( merged() + [selected])    
         G.set(new_graph)
-        
+
+    @reactive.effect
+    @reactive.event(input.combine_matching_names)
+    def _():
+        H = combine_likely_duplicates(G())
+        G.set(H)
+                
     def get_selected_nodes():
         try:
             # Selected by dropdown
