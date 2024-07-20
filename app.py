@@ -6,7 +6,6 @@ from htmltools import TagList, div
 
 from copy import copy 
 import msgspec
-import matplotlib.pyplot as plt
 import pandas as pd
 import networkx as nx
 from networkx.classes import filters
@@ -26,6 +25,10 @@ graph_factory = GraphFactory(
 
 app_ui = ui.page_sidebar(
     ui.sidebar("",
+        ui.div(
+            ui.h4("Graph Emails", {"style": "margin: 0 0 0px 0px;"}),
+            ui.a("A Public Data Tools project", href="http://publicdatatools.com"),
+        ),
         ui.accordion(
             ui.accordion_panel(
                 "UPLOAD",
@@ -53,15 +56,12 @@ app_ui = ui.page_sidebar(
                 ui.input_action_button("filter_graph_to_log_selection", "Filter graph (match log)"),
                 ui.input_action_button("filter_log_to_graph_selection", "Filter log (match graph)"),
                 ui.input_date_range("date_filter", "Filter by date field"),
-                # ui.output_ui("degree_control"),
-                # ui.output_plot("degree_plot", height="100px", width="auto"),
             ),
             ui.accordion_panel(
                 "STYLE",
                 ui.input_select('node_size', "Node size", ["Total email count", "Inbound emails", "Outbound emails", "Degree centrality"], selected = "Total email count"),
                 ui.input_select('node_color', "Node color", ["Domain", "Detect communities", "Source file(s)"]),
                 ui.input_select('edge_color', "Edge color", ["Grayscale", "Email count", "Recipient type", "Sender domain", "Inferred community"], selected = "Grayscale"),
-                # ui.input_action_button("detect_communities", "Detect communities"),
             ),
             id = "controls_accordion"
         ),
@@ -141,9 +141,15 @@ app_ui = ui.page_sidebar(
         .accordion-button:not(.collapsed) {
             background-color: #f2f2f2;
         }
+        
+        .bslib-page-sidebar > .navbar {
+                display: None;
+        }
+
+        
     """),
     {"style": "display:flex; flex-direction: column;"},
-    title = "Email Log Network Graphs",
+    title = "Graph Emails",
     height="auto",
 )
 
@@ -249,10 +255,10 @@ def server(input, output, session):
         # Selected node
         selected_node = viz().get_selected_node()
         if selected_node is not None:
-            aliases = G.nodes[selected_node].get('alias_ids', [ selected_node ])
+            aliases = G().nodes[selected_node].get('alias_ids', [ selected_node ])
             selected_node_filter = (
-                ( pl['to'].isin(selected_node) ) |
-                ( pl['from'].isin(selected_node) )
+                ( pl['to'].isin(aliases) ) |
+                ( pl['from'].isin(aliases) )
             )
             selected_ids = [ *selected_ids, *list(pl[selected_node_filter].id.unique()) ]
         
@@ -289,36 +295,6 @@ def server(input, output, session):
         selected_ids = list(set(selected_ids))
         return selected_ids 
             
-    @output 
-    @render.ui 
-    def degree_control():
-        max_degrees = 1000
-        if input.filter_by_degree():
-            max_degrees = len(nx.degree_histogram(G())) if len(G()) > 0 else 1000
-            return ui.input_slider('degree_controls', '', min=0, max=max_degrees, value=(0, max_degrees), drag_range=True)
-        
-    @output
-    @render.plot
-    def degree_plot():
-        if input.filter_by_degree():
-            fig, ax = plt.subplots()
-            if len(G()) > 0:
-                dh = (
-                    pd.Series([n[1] for n in G().degree])
-                        .value_counts(normalize=True)
-                        .reset_index()
-                        .rename(columns={"index": "degree"})
-                        .sort_values('degree')
-                )
-                ax.eventplot(positions = dh.degree, orientation="horizontal", linewidths=5)
-                ax.set(
-                    xlim=(0,dh['degree'].max() + 1), 
-                    ylim=(1, 1)
-                )
-                ax.axes.get_yaxis().set_visible(False)
-                ax.axes.get_xaxis().set_visible(False)
-                ax.margins(0)        
-            return fig
     
     # On file upload
     @reactive.Effect
@@ -356,7 +332,7 @@ def server(input, output, session):
         
         ui.update_select("from_field", choices = columns, selected = match_column(columns, "from") )
         ui.update_select("to_field",   choices = columns, selected = match_columns(columns, ["to", "cc", "bcc"]))
-        ui.update_select("email_id_field", choices = columns, selected = match_column(columns, "_id"))
+        ui.update_select("email_id_field", choices = columns, selected = match_column(columns, "_id", exclude = ["file_id:"]))
         ui.update_select("date_field", choices = columns, selected = match_column(columns, "date"))
 
     @output
@@ -367,11 +343,12 @@ def server(input, output, session):
             return pd.DataFrame()
         elif len(log()) > 0: 
             ui.update_accordion_panel(id="primary_accordion", target="LOG VIEW", show=True)
-            return render.DataGrid(log(), filters=True)
+            return render.DataGrid(log(), filters=True, width= "100%")
     
     @reactive.effect
     @reactive.event(input.add_to_graph)
     def add_to_graph_clicked():
+        
         fields = {
             "from": input.from_field(),
             "to": input.to_field(),
@@ -379,19 +356,23 @@ def server(input, output, session):
             "date": input.date_field()
         }
         print(fields)
+        
+        df = log().copy()
+        primary_columns = [fields['id'], fields['from'], *fields['to']] 
+        secondary_columns = [c for c in df.columns if c not in primary_columns]
+        
         if fields['id'] == "":
             log()['uuid'] = log().index.map(lambda _: str(uuid4()))
             fields['id'] = 'uuid'
         field_map.set(fields)
         
         if fields['date'] != "":
-            df = log().copy()
+            primary_columns.append("date_field")
             df[fields['date']] = pd.to_datetime(df[fields['date']])
             df['date_field'] = pd.to_datetime(df[fields['date']]).dt.strftime("%Y-%m-%d")
             min_date = df[fields['date']].min()
             max_date = df[fields['date']].max()
             print(min_date, max_date)
-            
             ui.update_date_range(
                 "date_filter", 
                 start = min_date, 
@@ -399,8 +380,9 @@ def server(input, output, session):
                 min = min_date,
                 max = max_date
             )
-            
-            log.set(df)
+        
+        cols = [*primary_columns, *secondary_columns]    
+        log.set(df[cols])
         
         # Begin async reprocessing of the log
         add_log(log(), filename(), fields, input.full_emails_only())
@@ -558,6 +540,7 @@ def server(input, output, session):
         ui.update_select("node_size", selected = "Total email count")
         ui.update_select("node_color", selected="Domain")
         ui.update_select("edge_color", selected = "Grayscale")
+        # await contents.update_filter(None)
         log.set(backup_log())
 
      
