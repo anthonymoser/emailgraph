@@ -99,61 +99,6 @@ app_ui = ui.page_sidebar(
         open = False,
         id = "output_accordion", 
     ),
-    # fill.as_fillable_container(
-    #     ui.div(
-    #         fill.as_fill_item(output_widget("sigma_graph")),
-    #         {"style": "flex: 1;"},
-    #         id = "sigma_graph_div",
-    #     )
-    # ),
-    # ui.tags.style("""
-    #     :root { 
-    #         --bslib-mb-spacer: .1rem; 
-    #         --bs-border-radius: 0;
-    #           font-size: small;
-    #     },
-    #     .action-button { 
-    #         margin:5px 0px 5px 0px;
-    #         border-radius: 0;
-    #     },
-        
-    #     .accordion .btn-default .action-button {
-    #         --bs-btn-margin-y: -1px;
-    #         --bs-btn-border-color: #acacac;
-    #         margin: 0px 0px -1px 0px;
-    #     }
-        
-    #     .nav-item .btn {
-    #         --bs-btn-border-width: 0;
-    #         --bs-btn-padding-x: 1em;
-    #         --bs-btn-hover-bg: var(--bs-tertiary-bg);
-    #         --bs-btn-hover-color: #000000;
-    #         --bs-btn-padding-y: 0;
-    #         --bs-btn-font-weight: 0;
-    #     } 
-        
-    #     .nav .input-group .form-control {
-    #         display: none;
-    #     }
-        
-    #     .bslib-sidebar-layout > .sidebar .shiny-input-container {
-    #         width: 100%;
-    #         margin-top: .75rem;
-    #     }
-    #     .accordion-button:not(.collapsed) {
-    #         background-color: #f2f2f2;
-    #     }
-    #     @layer htmltools {
-    #         .html-fill-container {
-    #             display: flex;
-    #             flex-direction: column;
-    #             flex: 1;
-    #         }
-    #     }
-    #     .bslib-page-sidebar > .navbar {
-    #             display: None;
-    #     }
-    # """),
     ui.tags.style("""
             :root { 
                 --bslib-mb-spacer: .1rem; 
@@ -231,7 +176,6 @@ app_ui = ui.page_sidebar(
         """),
     output_widget("sigma_graph"),
     fillable = True,
-    # {"style": "display:flex; flex-direction: column;"},
     title = "Graph Emails",
     height="auto",
 )
@@ -270,10 +214,6 @@ def server(input, output, session):
     )
     viz = reactive.Value()
     
-    # maybe deprecated?
-    update_styles_div = div("update-styles-div")
-    
-
     # Update node list 
     @reactive.effect
     def _():
@@ -317,7 +257,6 @@ def server(input, output, session):
         selected = get_selected_nodes()
         print("Combining nodes: ", selected)
         new_graph = combine_nodes(G(), selected)
-        # merged.set( merged() + [selected])    
         G.set(new_graph)
 
     @reactive.effect
@@ -460,9 +399,7 @@ def server(input, output, session):
         secondary_columns = [c for c in df.columns if c not in primary_columns]
         
         if fields['date'] != "":
-            # primary_columns.append(fields['date'])
             df[fields['date']] = pd.to_datetime(df[fields['date']])
-            # df['date_field'] = pd.to_datetime(df[fields['date']]).dt.strftime("%Y-%m-%d")
             min_date = df[fields['date']].dropna().min()
             max_date = df[fields['date']].max()
             print(min_date, max_date)
@@ -638,7 +575,6 @@ def server(input, output, session):
         ui.update_select("node_size", selected = "Total email count")
         ui.update_select("node_color", selected="Domain")
         ui.update_select("edge_color", selected = "Grayscale")
-        # await contents.update_filter(None)
         log.set(backup_log())
 
      
