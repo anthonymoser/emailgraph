@@ -229,8 +229,8 @@ def merge_graphs(G1:nx.DiGraph, G2: nx.DiGraph):
     combined = nx.compose(G1, G2)
     node_data = {}
     for n in G1.nodes & G2.nodes:
-        f1 = G1.nodes[n]['files']
-        f2 = G2.nodes[n]['files']
+        f1 = G1.nodes[n]['filename']
+        f2 = G2.nodes[n]['filename']
         if isinstance(f1, str):
             f1 = eval(f1)
         if isinstance(f2, str):

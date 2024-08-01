@@ -14,6 +14,7 @@ from uuid import uuid4
 from ipysigma import Sigma
 from util import * 
 from qng import NodeFactory, LinkFactory, GraphFactory, SigmaFactory, Element, QNG, load_schema
+from datetime import timedelta 
 
 graph_schema = load_schema('email_log_schema.qngs')
 graph_factory = GraphFactory(
@@ -56,7 +57,7 @@ app_ui = ui.page_sidebar(
                 "FILTER",
                 ui.input_action_button("filter_graph_to_log_selection", "Filter graph (match log)"),
                 ui.input_action_button("filter_log_to_graph_selection", "Filter log (match graph)"),
-                ui.input_date_range("date_filter", "Filter by date field"),
+                ui.input_date_range("date_filter", "Filter log by date"),
             ),
             ui.accordion_panel(
                 "STYLE",
@@ -95,65 +96,86 @@ app_ui = ui.page_sidebar(
             ui.output_data_frame(id="contents")
         ),
         multiple=True,
-        open = None,
+        open = False,
         id = "output_accordion", 
     ),
-    fill.as_fillable_container(
-        ui.div(
-            fill.as_fill_item(output_widget("sigma_graph")),
-            {"style": "flex: 1;"},
-            id = "sigma_graph_div",
-        )
-    ),
     ui.tags.style("""
-        :root { 
-            --bslib-mb-spacer: .1rem; 
-            --bs-border-radius: 0;
-              font-size: small;
-        },
-        .action-button { 
-            margin:5px 0px 5px 0px;
-            border-radius: 0;
-        },
-        
-        .accordion .btn-default .action-button {
-            --bs-btn-margin-y: -1px;
-            --bs-btn-border-color: #acacac;
-            margin: 0px 0px -1px 0px;
-        }
-        
-        .nav-item .btn {
-            --bs-btn-border-width: 0;
-            --bs-btn-padding-x: 1em;
-            --bs-btn-hover-bg: var(--bs-tertiary-bg);
-            --bs-btn-hover-color: #000000;
-            --bs-btn-padding-y: 0;
-            --bs-btn-font-weight: 0;
-        } 
-        
-        .nav .input-group .form-control {
-            display: none;
-        }
-        
-        .bslib-sidebar-layout > .sidebar .shiny-input-container {
-            width: 100%;
-            margin-top: .75rem;
-        }
-        .accordion-button:not(.collapsed) {
-            background-color: #f2f2f2;
-        }
-        @layer htmltools {
-            .html-fill-container {
-                display: flex;
-                flex-direction: column;
-                flex: 1;
+            :root { 
+                --bslib-mb-spacer: .1rem; 
+                --bs-border-radius: 0;
+                font-size: small;
             }
-        }
-        .bslib-page-sidebar > .navbar {
-                display: None;
-        }
-    """),
-    {"style": "display:flex; flex-direction: column;"},
+            .action-button { 
+                margin:5px 0px 5px 0px;
+                border-radius: 0;
+            },
+        
+            .accordion .btn-default .action-button {
+                --bs-btn-margin-y: -1px;
+                --bs-btn-border-color: #acacac;
+                margin: 0px 0px -1px 0px;
+            }
+            
+            .nav-item .btn {
+                --bs-btn-border-width: 0;
+                --bs-btn-padding-x: 1em;
+                --bs-btn-hover-bg: var(--bs-tertiary-bg);
+                --bs-btn-hover-color: #000000;
+                --bs-btn-padding-y: 0;
+                --bs-btn-font-weight: 0;
+            } 
+            
+            .shiny-input-container > div > select {
+                 width: 100%;
+                border-color: #cacaca;
+            }
+            
+            .nav .input-group .form-control {
+                display: none;
+            }
+            
+            .form-control {
+                border-color: #cacaca;
+            }
+            
+            .bslib-sidebar-layout > .sidebar .shiny-input-container {
+                width: 100%;
+                margin-top: 0rem;
+            }
+            
+            .bslib-sidebar-layout > .sidebar .accordion {
+                --bs-accordion-border-width: 0;
+            }
+            
+            .accordion-button:not(.collapsed) {
+                # background-color: #c5cbd2;
+            }
+            
+            .accordion-flush .accordion-collapse {
+                border-width: 0;
+                background-color: white;
+            }
+            
+            .accordion-button:not(.collapsed) {
+                color: var(--bs-accordion-active-color);
+                font-weight: bold;
+            }
+            
+            .bslib-page-sidebar > .navbar {
+                    display: None;
+            }
+            
+            .bslib-sidebar-layout {
+                --_sidebar-bg: #ededf0;
+                }
+                
+            .bslib-sidebar-layout > .sidebar .accordion {
+                --bs-accordion-border-width: 0;
+                --bs-accordion-bg: #ededf0;
+            }
+        """),
+    output_widget("sigma_graph"),
+    fillable = True,
     title = "Graph Emails",
     height="auto",
 )
@@ -192,10 +214,6 @@ def server(input, output, session):
     )
     viz = reactive.Value()
     
-    # maybe deprecated?
-    update_styles_div = div("update-styles-div")
-    
-
     # Update node list 
     @reactive.effect
     def _():
@@ -207,7 +225,10 @@ def server(input, output, session):
     @reactive.Effect
     @reactive.event(input.filter_graph_to_log_selection)
     def _():
-        ds = data_selected = contents.data_view(selected=True)
+        # ds = data_selected = contents.data_view(selected=True)
+        ds = data_selected = contents.data_view()
+        print(ds.columns)
+        print(len(ds))
         filtered_ids = ds[field_map()['id']].unique()
         filtered_rows = parsed_log().pipe( lambda df: df[ df['id'].isin(filtered_ids) ])
         rolled_up = count_emails(filtered_rows)
@@ -236,7 +257,6 @@ def server(input, output, session):
         selected = get_selected_nodes()
         print("Combining nodes: ", selected)
         new_graph = combine_nodes(G(), selected)
-        # merged.set( merged() + [selected])    
         G.set(new_graph)
 
     @reactive.effect
@@ -345,6 +365,7 @@ def server(input, output, session):
         ui.update_select("to_field",   choices = columns, selected = match_columns(columns, ["to", "cc", "bcc"]))
         ui.update_select("email_id_field", choices = columns, selected = match_column(columns, "_id", exclude = ["file_id:"]))
         ui.update_select("date_field", choices = columns, selected = match_column(columns, "date"))
+        ui.update_accordion_panel(id="output_accordion", target="LOG VIEW", show=True)
 
     @output
     @render.data_frame
@@ -353,7 +374,6 @@ def server(input, output, session):
         if input.file1() is None:
             return pd.DataFrame()
         elif len(log()) > 0: 
-            ui.update_accordion_panel(id="primary_accordion", target="LOG VIEW", show=True)
             return render.DataGrid(log(), filters=True, width= "100%")
     
     @reactive.effect
@@ -369,19 +389,18 @@ def server(input, output, session):
         print(fields)
         
         df = log().copy()
-        primary_columns = [fields['id'], fields['from'], *fields['to']] 
-        secondary_columns = [c for c in df.columns if c not in primary_columns]
         
         if fields['id'] == "":
-            log()['uuid'] = log().index.map(lambda _: str(uuid4()))
+            df['uuid'] = df.index.map(lambda _: str(uuid4()))
             fields['id'] = 'uuid'
         field_map.set(fields)
         
+        primary_columns = [fields['id'], fields['from'], *fields['to']] 
+        secondary_columns = [c for c in df.columns if c not in primary_columns]
+        
         if fields['date'] != "":
-            primary_columns.append("date_field")
             df[fields['date']] = pd.to_datetime(df[fields['date']])
-            df['date_field'] = pd.to_datetime(df[fields['date']]).dt.strftime("%Y-%m-%d")
-            min_date = df[fields['date']].min()
+            min_date = df[fields['date']].dropna().min()
             max_date = df[fields['date']].max()
             print(min_date, max_date)
             ui.update_date_range(
@@ -389,14 +408,17 @@ def server(input, output, session):
                 start = min_date, 
                 end = max_date,
                 min = min_date,
-                max = max_date
+                max = max_date  + timedelta(days = 1)
             )
         
-        cols = [*primary_columns, *secondary_columns]    
+        cols = [*primary_columns, *secondary_columns]
+        print("primary columns: ", primary_columns)    
+        print("secondary columns: ", secondary_columns)
         log.set(df[cols])
+        backup_log.set(df[cols])
         
         # Begin async reprocessing of the log
-        add_log(log(), filename(), fields, input.full_emails_only())
+        add_log(df, filename(), fields, input.full_emails_only())
     
     
     @ui.bind_task_button(button_id = 'add_to_graph')
@@ -428,7 +450,9 @@ def server(input, output, session):
             start = input.date_filter()[0]
             end = input.date_filter()[1]
             if start is not None and end is not None:
+                
                 df = log().copy()
+                print(df.columns)
                 date_field = field_map()['date']
                 df = df[ 
                     (df[date_field] >= pd.to_datetime(start)) &
@@ -551,7 +575,6 @@ def server(input, output, session):
         ui.update_select("node_size", selected = "Total email count")
         ui.update_select("node_color", selected="Domain")
         ui.update_select("edge_color", selected = "Grayscale")
-        # await contents.update_filter(None)
         log.set(backup_log())
 
      
